@@ -490,3 +490,62 @@
     )
   )
 )
+
+;; ADMINISTRATIVE FUNCTIONS
+
+(define-public (verify-user (user-address principal))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (match (get-user user-address)
+      user-data (begin
+        (verify-user-internal user-address user-data)
+        (ok true)
+      )
+      err-not-found
+    )
+  )
+)
+
+(define-public (update-platform-fee (new-fee uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (<= new-fee u1000) err-invalid-input) ;; Maximum 10% fee
+    (var-set platform-fee new-fee)
+    (ok true)
+  )
+)
+
+(define-public (update-min-reputation-for-rewards (new-min uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (<= new-min u10000) err-invalid-input) ;; Reasonable maximum limit
+    (var-set min-reputation-for-rewards new-min)
+    (ok true)
+  )
+)
+
+;; CONTENT MODERATION FUNCTIONS
+
+(define-public (deactivate-post (post-id uint))
+  (let ((post-data (unwrap! (get-post post-id) err-not-found)))
+    (asserts!
+      (or (is-eq tx-sender contract-owner) (is-eq tx-sender (get author post-data)))
+      err-unauthorized
+    )
+    (map-set posts { post-id: post-id } (merge post-data { is-active: false }))
+    (ok true)
+  )
+)
+
+(define-public (deactivate-endorsement (endorsement-id uint))
+  (let ((endorsement-data (unwrap! (get-endorsement endorsement-id) err-not-found)))
+    (asserts!
+      (or (is-eq tx-sender contract-owner) (is-eq tx-sender (get endorser endorsement-data)))
+      err-unauthorized
+    )
+    (map-set endorsements { endorsement-id: endorsement-id }
+      (merge endorsement-data { is-active: false })
+    )
+    (ok true)
+  )
+)
