@@ -74,3 +74,84 @@
     tags: (list 5 (string-ascii 32)),
   }
 )
+
+;; Post Engagement Tracking
+(define-map post-likes
+  {
+    post-id: uint,
+    liker: principal,
+  }
+  { timestamp: uint }
+)
+
+(define-map post-reposts
+  {
+    post-id: uint,
+    reposter: principal,
+  }
+  {
+    timestamp: uint,
+    original-post-id: uint,
+  }
+)
+
+;; Endorsement System
+(define-map endorsements
+  { endorsement-id: uint }
+  {
+    endorser: principal,
+    endorsed: principal,
+    skill-category: (string-ascii 32),
+    message: (string-utf8 256),
+    reputation-weight: uint,
+    timestamp: uint,
+    is-active: bool,
+  }
+)
+
+;; Endorsement Relationship Tracking
+(define-map user-endorsements
+  {
+    endorsed: principal,
+    endorser: principal,
+  }
+  { endorsement-id: uint }
+)
+
+;; Reputation History Ledger
+(define-map reputation-history
+  {
+    user: principal,
+    timestamp: uint,
+  }
+  {
+    action-type: (string-ascii 32),
+    reputation-change: int,
+    total-reputation: uint,
+    details: (string-utf8 128),
+  }
+)
+
+;; UTILITY FUNCTIONS
+
+(define-private (get-current-time)
+  stacks-block-height
+)
+
+(define-private (calculate-reputation-reward
+    (likes uint)
+    (author-reputation uint)
+  )
+  (let (
+      (base-reward (if (> likes u0)
+        (+ u10 (* likes u2))
+        u0
+      ))
+      (reputation-multiplier (if (> author-reputation u500)
+        u2
+        u1
+      ))
+    )
+    (* base-reward reputation-multiplier)
+  )
+)
