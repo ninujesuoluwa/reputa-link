@@ -228,3 +228,92 @@
     (merge user-data { is-verified: true })
   )
 )
+
+;; READ-ONLY QUERY FUNCTIONS
+
+(define-read-only (get-user (user-address principal))
+  (map-get? users { user-address: user-address })
+)
+
+(define-read-only (get-user-by-id (user-id uint))
+  (match (map-get? user-by-id { user-id: user-id })
+    user-data (get-user (get user-address user-data))
+    none
+  )
+)
+
+(define-read-only (get-post (post-id uint))
+  (map-get? posts { post-id: post-id })
+)
+
+(define-read-only (get-endorsement (endorsement-id uint))
+  (map-get? endorsements { endorsement-id: endorsement-id })
+)
+
+(define-read-only (has-liked-post
+    (post-id uint)
+    (user principal)
+  )
+  (is-some (map-get? post-likes {
+    post-id: post-id,
+    liker: user,
+  }))
+)
+
+(define-read-only (has-endorsed-user
+    (endorser principal)
+    (endorsed principal)
+  )
+  (is-some (map-get? user-endorsements {
+    endorsed: endorsed,
+    endorser: endorser,
+  }))
+)
+
+(define-read-only (get-user-reputation (user-address principal))
+  (match (get-user user-address)
+    user-data (get reputation-score user-data)
+    u0
+  )
+)
+
+(define-read-only (get-platform-stats)
+  {
+    total-users: (- (var-get next-user-id) u1),
+    total-posts: (- (var-get next-post-id) u1),
+    total-endorsements: (- (var-get next-endorsement-id) u1),
+    platform-fee: (var-get platform-fee),
+    min-reputation-for-rewards: (var-get min-reputation-for-rewards),
+  }
+)
+
+;; USER MANAGEMENT FUNCTIONS
+
+(define-public (register-user
+    (username (string-ascii 32))
+    (bio (string-utf8 256))
+  )
+  (let (
+      (current-user-id (var-get next-user-id))
+      (current-time (get-current-time))
+      (sanitized-bio (sanitize-bio bio))
+    )
+    (asserts! (is-none (get-user tx-sender)) err-already-exists)
+    (asserts! (is-valid-string-ascii username) err-invalid-input)
+    (asserts! (is-valid-string-utf8-256 bio) err-invalid-input)
+    (map-set users { user-address: tx-sender } {
+      user-id: current-user-id,
+      username: username,
+      bio: sanitized-bio,
+      reputation-score: u50, ;; Starting reputation
+      total-posts: u0,
+      total-likes-received: u0,
+      total-endorsements-received: u0,
+      joined-at: current-time,
+      is-verified: false,
+    })
+    (map-set user-by-id { user-id: current-user-id } { user-address: tx-sender })
+    (var-set next-user-id (+ current-user-id u1))
+    (ok current-user-id)
+  )
+)
