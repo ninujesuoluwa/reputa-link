@@ -410,3 +410,83 @@
     (ok true)
   )
 )
+
+(define-public (repost
+    (post-id uint)
+    (original-post-id uint)
+  )
+  (let (
+      (post-data (unwrap! (get-post post-id) err-not-found))
+      (original-post-data (unwrap! (get-post original-post-id) err-not-found))
+      (current-time (get-current-time))
+    )
+    (asserts! (get is-active post-data) err-not-found)
+    (asserts! (get is-active original-post-data) err-not-found)
+    (asserts! (not (is-eq tx-sender (get author post-data))) err-self-endorsement)
+    ;; Record the repost
+    (map-set post-reposts {
+      post-id: post-id,
+      reposter: tx-sender,
+    } {
+      timestamp: current-time,
+      original-post-id: original-post-id,
+    })
+    ;; Update post engagement metrics
+    (map-set posts { post-id: post-id }
+      (merge post-data { reposts: (+ (get reposts post-data) u1) })
+    )
+    (ok true)
+  )
+)
+
+;; PEER ENDORSEMENT SYSTEM
+
+(define-public (endorse-user
+    (endorsed-user principal)
+    (skill-category (string-ascii 32))
+    (message (string-utf8 256))
+  )
+  (let (
+      (current-endorsement-id (var-get next-endorsement-id))
+      (current-time (get-current-time))
+      (endorser-data (unwrap! (get-user tx-sender) err-not-found))
+      (endorsed-data (unwrap! (get-user endorsed-user) err-not-found))
+      (endorser-reputation (get reputation-score endorser-data))
+      (sanitized-message (sanitize-message message))
+    )
+    (asserts! (not (is-eq tx-sender endorsed-user)) err-self-endorsement)
+    (asserts! (>= endorser-reputation u50) err-insufficient-reputation)
+    (asserts! (not (has-endorsed-user tx-sender endorsed-user))
+      err-already-endorsed
+    )
+    (asserts! (is-valid-string-ascii skill-category) err-invalid-input)
+    (asserts! (is-valid-string-utf8-256 message) err-invalid-input)
+    (let ((reputation-weight (calculate-endorsement-weight endorser-reputation)))
+      ;; Create endorsement record
+      (map-set endorsements { endorsement-id: current-endorsement-id } {
+        endorser: tx-sender,
+        endorsed: endorsed-user,
+        skill-category: skill-category,
+        message: sanitized-message,
+        reputation-weight: reputation-weight,
+        timestamp: current-time,
+        is-active: true,
+      })
+      ;; Track endorsement relationship
+      (map-set user-endorsements {
+        endorsed: endorsed-user,
+        endorser: tx-sender,
+      } { endorsement-id: current-endorsement-id }
+      )
+      ;; Update endorsed user's reputation and endorsement count
+      (map-set users { user-address: endorsed-user }
+        (merge endorsed-data {
+          reputation-score: (+ (get reputation-score endorsed-data) reputation-weight),
+          total-endorsements-received: (+ (get total-endorsements-received endorsed-data) u1),
+        })
+      )
+      (var-set next-endorsement-id (+ current-endorsement-id u1))
+      (ok current-endorsement-id)
+    )
+  )
+)
