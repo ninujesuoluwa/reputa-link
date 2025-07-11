@@ -317,3 +317,96 @@
     (ok current-user-id)
   )
 )
+
+(define-public (update-profile
+    (username (string-ascii 32))
+    (bio (string-utf8 256))
+  )
+  (let (
+      (user-data (unwrap! (get-user tx-sender) err-not-found))
+      (sanitized-bio (sanitize-bio bio))
+    )
+    (asserts! (is-valid-string-ascii username) err-invalid-input)
+    (asserts! (is-valid-string-utf8-256 bio) err-invalid-input)
+    (map-set users { user-address: tx-sender }
+      (merge user-data {
+        username: username,
+        bio: sanitized-bio,
+      })
+    )
+    (ok true)
+  )
+)
+
+;; CONTENT CREATION & INTERACTION FUNCTIONS
+
+(define-public (create-post
+    (content (string-utf8 512))
+    (tags (list 5 (string-ascii 32)))
+  )
+  (let (
+      (current-post-id (var-get next-post-id))
+      (current-time (get-current-time))
+      (user-data (unwrap! (get-user tx-sender) err-not-found))
+    )
+    (asserts! (is-valid-string-utf8-512 content) err-invalid-input)
+    (asserts! (is-valid-tag-list tags) err-invalid-input)
+    ;; Create post
+    (map-set posts { post-id: current-post-id } {
+      author: tx-sender,
+      content: content,
+      timestamp: current-time,
+      likes: u0,
+      reposts: u0,
+      replies: u0,
+      reputation-earned: u0,
+      is-active: true,
+      tags: tags,
+    })
+    ;; Update user stats
+    (map-set users { user-address: tx-sender }
+      (merge user-data { total-posts: (+ (get total-posts user-data) u1) })
+    )
+    (var-set next-post-id (+ current-post-id u1))
+    (ok current-post-id)
+  )
+)
+
+(define-public (like-post (post-id uint))
+  (let (
+      (post-data (unwrap! (get-post post-id) err-not-found))
+      (current-time (get-current-time))
+      (author (get author post-data))
+      (author-data (unwrap! (get-user author) err-not-found))
+    )
+    (asserts! (get is-active post-data) err-not-found)
+    (asserts! (not (has-liked-post post-id tx-sender)) err-already-exists)
+    (asserts! (not (is-eq tx-sender author)) err-self-endorsement)
+    ;; Record the like
+    (map-set post-likes {
+      post-id: post-id,
+      liker: tx-sender,
+    } { timestamp: current-time }
+    )
+    ;; Update post stats and calculate rewards
+    (let (
+        (new-likes (+ (get likes post-data) u1))
+        (reputation-reward (calculate-reputation-reward new-likes (get reputation-score author-data)))
+      )
+      (map-set posts { post-id: post-id }
+        (merge post-data {
+          likes: new-likes,
+          reputation-earned: (+ (get reputation-earned post-data) reputation-reward),
+        })
+      )
+      ;; Update author's reputation and engagement stats
+      (map-set users { user-address: author }
+        (merge author-data {
+          reputation-score: (+ (get reputation-score author-data) reputation-reward),
+          total-likes-received: (+ (get total-likes-received author-data) u1),
+        })
+      )
+    )
+    (ok true)
+  )
+)
